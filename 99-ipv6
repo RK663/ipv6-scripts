@@ -39,8 +39,15 @@
 #
 
 # Change EXT_IFACE by updating the config file
+
+if [ "$ADDRFAM" != "inet6" ]; then
+        exit 0
+fi
+
+echo -e "\n\n\nEntering 99-ipv6";
+
 CONF='/etc/ipv6_prefix_dhclient.conf'
-EXT_IFACE="eth1"
+#EXT_IFACE="eth1"
 
 [ -r $CONF ] && . $CONF
 
@@ -55,13 +62,29 @@ if [ "$MODE" != start ]; then
 fi
 
 # If there's a stale dhclient, kill it
-kill `cat /var/run/dhclient6.$IFACE.pid`
+
+if [ -e /var/run/dhclient6.$IFACE.pid ]; then
+	kill `cat /var/run/dhclient6.$IFACE.pid`
+fi
+
+echo "Waiting for interface $IFACE to finish Duplicate Address Detection (https://bugs.launchpad.net/ubuntu/+source/ifupdown/+bug/1543352)"
+sleep 4
 
 # Start our new one
-dhclient -6 -P -pf /var/run/dhclient6.$IFACE.pid \
-  -lf /var/lib/dhcp/dhclient6.$IFACE.leases $IFACE &
+#dhclient -6 -P -pf /var/run/dhclient6.$IFACE.pid -lf /var/lib/dhcp/dhclient6.$IFACE.leases $IFACE &
+
+echo -e "\n\n\nStarting dhclient for IPv6"
+
+dhclient -6 -P $IFACE -cf /etc/dhcp/dhclient6.conf -v -D LL -pf /var/run/dhclient6.$IFACE.pid -lf /var/lib/dhcp/dhclient6.$IFACE.leases
+
+echo -e "\n\n\nKernel settings for $IFACE"
+
+sysctl -w net/ipv6/conf/$IFACE/accept_ra=2
+sysctl -w net/ipv6/conf/$IFACE/forwarding=1
+sysctl -w net/ipv6/conf/$IFACE/autoconf=1
+sysctl -w net/ipv6/neigh/$IFACE/base_reachable_time_ms=300000
 
 # reload firewall rules
-/etc/network/ip6tables reload
+#/etc/network/ip6tables reload
 
 exit 0

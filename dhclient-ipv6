@@ -45,8 +45,6 @@
 
 # Change INT_IFACE or EXT_IFACE by setting them in the config file
 CONF='/etc/ipv6_prefix_dhclient.conf'
-INT_IFACE='eth0'
-EXT_IFACE='eth1'
 
 [ -r $CONF ] && . $CONF
 
@@ -54,34 +52,38 @@ ipv6_prefix_setup() {
   current_ip=$(/sbin/ip -6 addr show dev $INT_IFACE scope global |\
                /usr/bin/awk '/inet6/ {print $2}')
   current_prefix=$(echo $current_ip | /bin/sed -e 's@::1/64@::/64@')
-  if [ "$current_prefix" == "$new_ip6_prefix" ] ; then
-    return
-  fi
+  
+  #Always update
+  #if [ "$current_prefix" == "$new_ip6_prefix" ] ; then
+  #  return
+  #fi
 
   # Setup the new IP
-  new_ip=$(echo $new_ip6_prefix | /bin/sed -e 's@::/64@::1/64@g')
+  new_ip=$(echo $new_ip6_prefix | /bin/sed -e 's@::/56@::1/64@g')
+  echo "Adding IPv6 to $INT_IFACE : " $new_ip
   if [ ! -z "$current_ip" ] ; then
     ip -6 addr del $current_ip dev $INT_IFACE
   fi
   ip -6 addr add $new_ip dev $INT_IFACE
 
   # Ensure we'll get router advertisements
-  sysctl -w "net.ipv6.conf.$EXT_IFACE.accept_ra=2"
-  # Needed for kernels before 2.6.37, don't worry,
-  # forwarding will still work as long as you have it set
-  # on your other interface.
-  sysctl -w "net.ipv6.conf.$EXT_IFACE.forwarding=0"
+  sysctl -w "net/ipv6/conf/$EXT_IFACE/accept_ra=2"
+  sysctl -w "net/ipv6/conf/$EXT_IFACE/forwarding=1"
+
+  new_internal_prefix=$(echo $new_ip6_prefix | /bin/sed -e 's@::/56@::/64@g')
 
   # Update radvd
   tmpfile=/tmp/radvd.conf.$$
-  sed -e "s@__PREFIX__@$new_ip6_prefix@g" /etc/radvd.conf.tmpl > $tmpfile
-  diff $tmpfile /etc/radvd.conf >/dev/null
-  if [ $? == 1 ]; then
+  sed -e "s@__PREFIX__@$new_internal_prefix@g" -e "s@__INT_IFACE__@$INT_IFACE@g" /etc/radvd.conf.tmpl > $tmpfile
+  #diff $tmpfile /etc/radvd.conf >/dev/null
+  #if [ $? == 1 ]; then
     mv $tmpfile /etc/radvd.conf
+    echo "New radvd.conf file"
+    cat /etc/radvd.conf
     /etc/init.d/radvd restart
-  else
-    rm $tmpfile
-  fi
+  #else
+	#rm $tmpfile
+  #fi
 }
 
 if [ "$interface" != "$EXT_IFACE" ] ; then
@@ -93,6 +95,14 @@ case "$reason" in
     # We will get called twice here - once for the temp address
     # and once for the prefix. We only care about the prefix.
     if [ ! -z "$new_ip6_prefix" ] ; then
+	echo -e "\n\n\nEntering ipv6-setup"
+
+	echo "Received prefix : " $new_ip6_prefix
+
+	echo "Adding default routes via fe80::ba0:bab (not waiting for RA)"
+	ip -6 route add default via fe80::ba0:bab dev $EXT_IFACE
+	ip -6 route add 2000::/3 via fe80::ba0:bab dev $EXT_IFACE
+
       ipv6_prefix_setup
     fi
     ;;
