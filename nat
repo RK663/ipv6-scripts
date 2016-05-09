@@ -1,0 +1,14 @@
+#!/bin/bash
+
+CONF='/etc/ipv6_prefix_dhclient.conf'
+
+[ -r $CONF ] && . $CONF
+
+if [ "$ADDRFAM" != "inet" ]; then
+        exit 0
+fi
+
+echo "Setting MASQUERADE on $EXT_IFACE"
+iptables -t nat -A POSTROUTING -j MASQUERADE -o $EXT_IFACE
+
+exit 0
